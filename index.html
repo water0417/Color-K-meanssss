@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Color K-Means</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script>
+        function loadEChartsFallback() {
+            var s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js';
+            s.onload = function() { console.info('Loaded echarts fallback from CDN'); };
+            document.head.appendChild(s);
+        }
+    </script>
+    <script src="js/vendor/echarts.min.js" onerror="loadEChartsFallback()"></script>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="navbar-left">
+            <div class="nav-menu-trigger" id="nav-menu-trigger">
+                <span class="menu-label">FUNC</span>
+                <span class="menu-sub">菜单</span>
+                <div class="nav-dropdown" id="nav-dropdown">
+                    <div class="dropdown-section">
+                        <div class="dropdown-item" data-action="home">
+                            <span class="item-icon">🏠</span>
+                            <span class="item-text">首页</span>
+                        </div>
+                        <div class="dropdown-item has-submenu" data-action="save">
+                            <span class="item-icon">💾</span>
+                            <span class="item-text">保存导出</span>
+                            <span class="submenu-arrow">▶</span>
+                            <div class="dropdown-submenu">
+                                <div class="submenu-item" data-subaction="save-image">
+                                    <span class="submenu-icon">🖼️</span>
+                                    <span class="submenu-text">保存图片</span>
+                                </div>
+                                <div class="submenu-item" data-subaction="save-chart">
+                                    <span class="submenu-icon">📊</span>
+                                    <span class="submenu-text">保存图表</span>
+                                </div>
+                                <div class="submenu-item" data-subaction="save-panel">
+                                    <span class="submenu-icon">📋</span>
+                                    <span class="submenu-text">保存面板</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="dropdown-item" data-action="download">
+                            <span class="item-icon">📥</span>
+                            <span class="item-text">下载配色方案</span>
+                        </div>
+                        <div class="dropdown-item" data-action="new-panel">
+                            <span class="item-icon">➕</span>
+                            <span class="item-text">新建对比面板</span>
+                        </div>
+                        <div class="dropdown-item" data-action="batch-compare">
+                            <span class="item-icon">🔄</span>
+                            <span class="item-text">批量对比</span>
+                        </div>
+                    </div>
+                    <div class="dropdown-divider"></div>
+                    <div class="dropdown-section">
+                        <div class="dropdown-item" data-action="clustering">
+                            <span class="item-icon">🎨</span>
+                            <span class="item-text">颜色聚类分析</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="nav-menu-trigger">
+                <span class="menu-label">ABOUT</span>
+                <span class="menu-sub">关于</span>
+            </div>
+        </div>
+        <div class="navbar-center">
+        </div>
+        <div class="navbar-right">
+            <span class="navbar-user">🎨</span>
+        </div>
+    </nav>
+
+    <!-- GitHub Pages warning removed: using backend proxy is recommended for real AI calls -->
+
+    <div class="page-title-section">
+        <h1 class="page-main-title">Color K-Means</h1>
+        <p class="page-sub-title">Image Color K-Means Clustering Visualization</p>
+    </div>
+
+    <div id="panels-container">
+        <div id="upload-modal" class="modal-overlay">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>📁 选择图片</h3>
+                    <button class="modal-close" id="modal-close">✕</button>
+                </div>
+                <div class="modal-body">
+                    <div class="preset-images">
+                        <h4>预设图片</h4>
+                        <div class="preset-grid">
+                            <div class="preset-image-item" data-src="picture/粉红色闪电.png">
+                                <img src="picture/粉红色闪电.png" alt="粉红色闪电">
+                                <span class="preset-image-name">粉红色闪电</span>
+                            </div>
+                            <div class="preset-image-item" data-src="picture/鼓楼.png">
+                                <img src="picture/鼓楼.png" alt="鼓楼">
+                                <span class="preset-image-name">鼓楼</span>
+                            </div>
+                            <div class="preset-image-item" data-src="picture/班旗设计.jpg">
+                                <img src="picture/班旗设计.jpg" alt="班旗设计">
+                                <span class="preset-image-name">班旗设计</span>
+                            </div>
+                            <div class="preset-image-item" data-src="picture/rui.jpg">
+                                <img src="picture/rui.jpg" alt="rui">
+                                <span class="preset-image-name">rui</span>
+                            </div>
+                            <div class="preset-image-item" data-src="picture/向日葵.jpg">
+                                <img src="picture/向日葵.jpg" alt="向日葵">
+                                <span class="preset-image-name">向日葵</span>
+                            </div>
+                            <div class="preset-image-item" data-src="picture/向日葵2.jpg">
+                                <img src="picture/向日葵2.jpg" alt="向日葵2">
+                                <span class="preset-image-name">向日葵2</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="upload-local">
+                        <label for="local-upload" class="upload-local-btn">
+                            📂 上传本地图片
+                        </label>
+                        <input type="file" id="local-upload" accept="image/*" multiple>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel-wrapper" data-panel-id="0">
+            <div class="panel-header">
+                <span class="panel-title">分析面板 1</span>
+                <div class="panel-header-actions">
+                    <div class="cache-select-container">
+                        <label for="history-cache-0">📂 历史:</label>
+                        <select id="history-cache-0">
+                            <option value="">选择历史图片...</option>
+                        </select>
+                        <button class="clear-cache-btn" data-panel-id="0">🗑️</button>
+                    </div>
+                    <button class="remove-panel-btn" data-panel-id="0">✕</button>
+                </div>
+            </div>
+            <main class="three-column-layout">
+                <section class="column-left">
+                    <div class="card">
+                        <div class="left-fixed-top">
+                            <div class="upload-container">
+                                <label for="image-upload-0" class="upload-btn">
+                                    选择图片
+                                </label>
+                                <input type="file" id="image-upload-0" accept="image/*" multiple>
+                            </div>
+                            <div class="image-preview-container" id="image-preview-container-0">
+                                <canvas id="preview-canvas-0"></canvas>
+                                <div class="canvas-placeholder" id="canvas-placeholder-0">
+                                    <span class="placeholder-icon">🖼️</span>
+                                    <p>点击此处或上方按钮上传图片</p>
+                                </div>
+                            </div>
+                            <div class="image-switcher" id="image-switcher-0">
+                                <button class="switch-btn" id="prev-img-btn-0">⬅️</button>
+                                <span class="image-counter" id="image-counter-0">0 / 0</span>
+                                <button class="switch-btn" id="next-img-btn-0">➡️</button>
+                            </div>
+                        </div>
+
+                        <div class="left-scroll-middle">
+                            <h3 class="presets-title" id="presets-title-0" style="display: none;">🎨 配色预设</h3>
+                            <div class="color-presets-container custom-scrollbar" id="color-presets-0" style="display: none;">
+                                <div class="preset-swatch-grid" id="preset-swatch-grid-0"></div>
+                            </div>
+                        </div>
+
+                        <div class="left-fixed-bottom">
+                            <div class="color-migration-container">
+                                <label for="migration-source-0">🎨 配色迁移:</label>
+                                <button class="migration-btn" id="apply-migration-btn-0">选择图片迁移配色</button>
+                                <input type="file" id="migration-file-0" accept="image/*" style="display: none;">
+                            </div>
+                            <div class="image-actions">
+                                <button class="action-btn secondary-btn" id="restore-original-btn-0">🔄 恢复原图</button>
+                                <button class="action-btn secondary-btn" id="undo-btn-0" disabled>↩️ 撤销</button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="column-center">
+                    <div class="card">
+                        <div class="chart-controls">
+                            <div class="control-group-inline">
+                                <label for="k-value-0">K:</label>
+                                <input type="number" id="k-value-0" value="5" min="2" max="20" step="1">
+                            </div>
+                            <div class="control-group-inline">
+                                <label for="color-space-0">空间:</label>
+                                <select id="color-space-0">
+                                    <option value="rgb">RGB</option>
+                                    <option value="lab">LAB</option>
+                                    <option value="hsl">HSL</option>
+                                    <option value="cmyk">CMYK</option>
+                                </select>
+                            </div>
+                            <div class="control-group-inline">
+                                <label for="chart-type-0">图表:</label>
+                                <select id="chart-type-0">
+                                    <option value="pie">饼图</option>
+                                    <option value="bar">柱状图</option>
+                                    <option value="rose">玫瑰图</option>
+                                    <option value="scatter">散点</option>
+                                </select>
+                            </div>
+                            <button class="action-btn cluster-btn" id="start-cluster-btn-0">
+                                聚类
+                            </button>
+                        </div>
+                        
+                        <div class="chart-container" id="chart-container-0">
+                            <div id="chart-0"></div>
+                            <div class="chart-placeholder" id="chart-placeholder-0">
+                                <span class="placeholder-icon">📈</span>
+                                <p>请先上传图片并执行聚类</p>
+                            </div>
+                            <div class="bg-color-control" id="bg-color-control-0">
+                                <button class="bg-color-btn" id="bg-color-btn-0" title="选择图表背景色">🎨</button>
+                                <input type="color" id="bg-color-picker-0" value="#f5f7fa" class="color-picker">
+                            </div>
+                        </div>
+
+                        <div class="chart-info" id="chart-info-0">
+                            <p>共检测到 <span id="total-pixels-0">0</span> 个像素</p>
+                            <p>聚类数量: <span id="cluster-count-0">0</span></p>
+                        </div>
+
+                        <div class="color-editor-container" id="color-editor-container-0" style="display: none;">
+                            <h3>🎨 颜色编辑</h3>
+                            <div class="color-editor-grid" id="color-editor-grid-0"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="column-right">
+                    <div class="card">
+                        <div class="right-fixed-top">
+                            <h2>🤖 AI配色分析区</h2>
+                            <div class="score-container" id="score-container-0">
+                                <div class="score-ring">
+                                    <svg viewBox="0 0 120 120" class="score-svg">
+                                        <circle class="score-bg" cx="60" cy="60" r="52" fill="none" stroke="#e0e0e0" stroke-width="8"/>
+                                        <circle class="score-progress" id="score-progress-0" cx="60" cy="60" r="52" fill="none" stroke="#67c23a" stroke-width="8" stroke-linecap="round" stroke-dasharray="326.72" stroke-dashoffset="326.72"/>
+                                    </svg>
+                                    <div class="score-text">
+                                        <span class="score-value" id="harmony-score-0">--</span>
+                                        <span class="score-unit">分</span>
+                                    </div>
+                                </div>
+                                <div class="score-label" id="score-label-0">等待分析...</div>
+                            </div>
+                        </div>
+
+                        <div class="right-scroll-middle">
+                            <div class="ai-text-container" id="ai-text-container-0">
+                                <h3>📝 配色分析报告</h3>
+                                <div class="ai-content custom-scrollbar" id="ai-content-0">
+                                    <p class="loading-text">聚类完成后自动分析</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="right-fixed-bottom">
+                            <div class="api-config">
+                                <label for="ai-api-url-0">AI接口地址:</label>
+                                <input type="text" id="ai-api-url-0" placeholder="https://llm-hlfbtvbtiws685bd.cn-beijing.maas.aliyuncs.com/compatible-mode/v1" value="https://llm-hlfbtvbtiws685bd.cn-beijing.maas.aliyuncs.com/compatible-mode/v1">
+                            </div>
+                            <div class="api-config">
+                                <label for="ai-api-key-0">API Key:</label>
+                                <input type="password" id="ai-api-key-0" placeholder="留空使用默认配置" autocomplete="off" value="sk-aa60890ddd364d76a03a0af29c626943">
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <script src="js/kmeans.js"></script>
+    <script src="js/chart.js"></script>
+    <script src="js/aiApi.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>
