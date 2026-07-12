@@ -374,7 +374,8 @@ const ColorKMeans = (function() {
                 colorHex: rgbToHex(centroid.r, centroid.g, centroid.b),
                 pixelCount,
                 percentage,
-                label: `颜色${i + 1}`
+                label: `颜色${i + 1}`,
+                displayLabel: `颜色${i + 1}`
             });
         }
 
@@ -527,6 +528,7 @@ const ColorKMeans = (function() {
             series.push({
                 name: `颜色${i + 1}`,
                 type: 'scatter',
+                clusterIndex: i,
                 data: points,
                 symbolSize: 8,
                 itemStyle: {

@@ -6,7 +6,7 @@
 const ColorAI = (function() {
     let apiUrls = {};
     let apiKeys = {};
-    let defaultApiUrl = 'https://llm-hlfbtvbtiws685bd.cn-beijing.maas.aliyuncs.com/compatible-mode/v1';
+    let defaultApiUrl = 'https://llm-hlfbtvbtiws685bd.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions';
     let defaultApiKey = 'sk-aa60890ddd364d76a03a0af29c626943';
 
     function normalizeApiUrl(url) {
@@ -14,10 +14,41 @@ const ColorAI = (function() {
         if (!trimmed) {
             return defaultApiUrl;
         }
-        if (trimmed.includes('/chat/completions')) {
+        const normalized = trimmed.replace(/\/+$/, '');
+        if (normalized.includes('/chat/completions')) {
             return trimmed;
         }
-        return trimmed.replace(/\/+$/, '') + '/chat/completions';
+        // If the user provided Alibaba MAAS compatible-mode base, append chat/completions
+        if (/compatible-mode\/v1$/.test(normalized)) {
+            return normalized + '/chat/completions';
+        }
+        if (/\/v1$/.test(normalized) && /openai\.com/.test(normalized)) {
+            return normalized + '/chat/completions';
+        }
+        return normalized;
+    }
+
+    function isGitHubPagesHost(hostname) {
+        return typeof hostname === 'string' && /(^|\.)github\.io$/.test(hostname);
+    }
+
+    function isLocalHost(hostname) {
+        return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0';
+    }
+
+    function canUseBrowserDirectApi(apiUrl) {
+        if (typeof window === 'undefined' || !apiUrl) {
+            return false;
+        }
+        try {
+            const target = new URL(apiUrl, window.location.href);
+            const pageHostname = window.location.hostname;
+            return isLocalHost(pageHostname)
+                || isLocalHost(target.hostname)
+                || (target.hostname === pageHostname && target.protocol === window.location.protocol);
+        } catch (err) {
+            return false;
+        }
     }
 
     /**
@@ -105,65 +136,129 @@ ${colorInfo}
                 error: '没有可分析的颜色数据'
             };
         }
-        // If running on GitHub Pages, avoid real network AI calls (CORS) and return mock data
-        const hostname = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : '';
-        if (hostname.includes('github.io')) {
-            console.info('Detected GitHub Pages environment — using mock AI result to avoid CORS.');
-            return generateMockResult(colors);
-        }
-
         const prompt = generatePrompt(colors);
         const apiUrl = normalizeApiUrl(getApiUrl(panelId));
         const apiKey = getApiKey(panelId);
 
+        // Prepare payload for both proxy and direct calls
+        const payload = {
+            model: 'qwen-turbo',
+            messages: [{ role: 'user', content: prompt }],
+            temperature: 0.7,
+            max_tokens: 1000
+        };
+
+        // Try proxying through local backend first (/api/ai-proxy)
         try {
-            const headers = {
-                'Content-Type': 'application/json'
-            };
-            if (apiKey) {
-                headers['Authorization'] = `Bearer ${apiKey}`;
+            const proxyResp = await fetch('/api/ai-proxy', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(Object.assign({ apiUrl: apiUrl, apiKey: apiKey }, payload))
+            });
+
+            if (proxyResp.ok) {
+                const data = await proxyResp.json();
+                // If response matches expected structure, parse similarly to direct API
+                if (data.choices && data.choices[0] && data.choices[0].message) {
+                    const content = data.choices[0].message.content;
+                    try {
+                        const jsonMatch = content.match(/\{[\s\S]*\}/);
+                        if (jsonMatch) return JSON.parse(jsonMatch[0]);
+                        return parseTextResult(content);
+                    } catch (e) {
+                        return parseTextResult(content);
+                    }
+                }
+
+                // If proxy returned a full JSON analysis (e.g., forwarded raw response), accept it
+                if (data.harmonyScore || data.style) {
+                    return data;
+                }
+            } else {
+                console.warn('Proxy responded with status', proxyResp.status);
+                // If the hosted static server (e.g. Live Server) returned 405, try common local proxy ports
+                if (proxyResp.status === 405) {
+                    const altProxyHosts = [
+                        'http://127.0.0.1:8000/api/ai-proxy',
+                        'http://localhost:8000/api/ai-proxy',
+                        'http://127.0.0.1:5000/api/ai-proxy',
+                        'http://localhost:5000/api/ai-proxy'
+                    ];
+
+                    for (const alt of altProxyHosts) {
+                        try {
+                            const altResp = await fetch(alt, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(Object.assign({ apiUrl: apiUrl, apiKey: apiKey }, payload))
+                            });
+                            if (altResp.ok) {
+                                const altData = await altResp.json();
+                                if (altData.choices && altData.choices[0] && altData.choices[0].message) {
+                                    const content = altData.choices[0].message.content;
+                                    try {
+                                        const jsonMatch = content.match(/\{[\s\S]*\}/);
+                                        if (jsonMatch) return JSON.parse(jsonMatch[0]);
+                                        return parseTextResult(content);
+                                    } catch (e) {
+                                        return parseTextResult(content);
+                                    }
+                                }
+                                if (altData.harmonyScore || altData.style) return altData;
+                            } else {
+                                console.warn('Alt proxy', alt, 'responded with', altResp.status);
+                            }
+                        } catch (e) {
+                            console.warn('Alt proxy request failed:', alt, e.message);
+                        }
+                    }
+                }
             }
+        } catch (proxyErr) {
+            console.warn('Proxy request failed:', proxyErr.message);
+        }
+
+        const hostname = (typeof window !== 'undefined' && window.location && window.location.hostname) ? window.location.hostname : '';
+        const isGithubPages = isGitHubPagesHost(hostname) || hostname.includes('.github.io');
+        const directApiAllowed = canUseBrowserDirectApi(apiUrl);
+
+        if (isGithubPages) {
+            console.info('Running on GitHub Pages and proxy unavailable — using mock AI result.');
+            return generateMockResult(colors);
+        }
+
+        if (!directApiAllowed) {
+            console.info('Direct API request may be blocked by CORS; attempting direct fetch fallback anyway.');
+        }
+
+        // Fallback: try direct fetch to the configured API URL when same-origin or local host
+        try {
+            const headers = { 'Content-Type': 'application/json' };
+            if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
 
             const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: headers,
-                body: JSON.stringify({
-                    model: 'qwen-turbo',
-                    messages: [{
-                        role: 'user',
-                        content: prompt
-                    }],
-                    temperature: 0.7,
-                    max_tokens: 1000
-                })
+                body: JSON.stringify(payload)
             });
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             const data = await response.json();
-            
+
             if (data.choices && data.choices[0] && data.choices[0].message) {
                 const content = data.choices[0].message.content;
-                
                 try {
                     const jsonMatch = content.match(/\{[\s\S]*\}/);
-                    if (jsonMatch) {
-                        return JSON.parse(jsonMatch[0]);
-                    }
+                    if (jsonMatch) return JSON.parse(jsonMatch[0]);
                     return parseTextResult(content);
                 } catch (e) {
                     return parseTextResult(content);
                 }
             }
 
-            return {
-                error: '无法解析AI返回结果'
-            };
+            return { error: '无法解析AI返回结果' };
         } catch (error) {
-            console.warn('AI接口不可用，使用模拟数据:', error.message);
-            
+            console.warn('Direct AI call failed, using mock:', error.message);
             return generateMockResult(colors);
         }
     }

@@ -77,17 +77,21 @@ const ColorChart = (function() {
             },
             legend: {
                 orient: 'horizontal',
-                bottom: '5%',
+                bottom: '10%',
                 textStyle: {
                     color: '#666'
                 },
-                itemGap: 15
+                itemGap: 16,
+                formatter: function(name) {
+                    const item = data.find(item => item.label === name);
+                    return item && item.displayLabel ? item.displayLabel : name;
+                }
             },
             series: [{
                 name: '颜色聚类',
                 type: 'pie',
-                radius: ['35%', '75%'],
-                center: ['50%', '50%'],
+                radius: ['30%', '68%'],
+                center: ['50%', '42%'],
                 avoidLabelOverlap: false,
                 itemStyle: {
                     borderRadius: 8,
@@ -97,7 +101,11 @@ const ColorChart = (function() {
                 label: {
                     show: true,
                     position: 'outside',
-                    formatter: '{b}: {d}%',
+                    formatter: function(params) {
+                        const item = data.find(item => item.label === params.name);
+                        const displayName = item && item.displayLabel ? item.displayLabel : params.name;
+                        return `${displayName}: ${params.percent}%`;
+                    },
                     fontSize: 12,
                     color: '#555'
                 },
@@ -157,7 +165,7 @@ const ColorChart = (function() {
             grid: {
                 left: '3%',
                 right: '4%',
-                bottom: '15%',
+                bottom: '24%',
                 top: '15%',
                 containLabel: true
             },
@@ -166,7 +174,11 @@ const ColorChart = (function() {
                 data: data.map(item => item.label),
                 axisLabel: {
                     color: '#666',
-                    fontSize: 12
+                    fontSize: 12,
+                    formatter: function(value) {
+                        const item = data.find(item => item.label === value);
+                        return item && item.displayLabel ? item.displayLabel : value;
+                    }
                 },
                 axisLine: {
                     lineStyle: {
@@ -255,17 +267,21 @@ const ColorChart = (function() {
             },
             legend: {
                 orient: 'horizontal',
-                bottom: '5%',
+                bottom: '10%',
                 textStyle: {
                     color: '#666'
                 },
-                itemGap: 15
+                itemGap: 16,
+                formatter: function(name) {
+                    const item = data.find(item => item.label === name);
+                    return item && item.displayLabel ? item.displayLabel : name;
+                }
             },
             series: [{
                 name: '颜色聚类',
                 type: 'pie',
-                radius: ['10%', '70%'],
-                center: ['50%', '45%'],
+                radius: ['10%', '65%'],
+                center: ['50%', '36%'],
                 roseType: 'radius',
                 itemStyle: {
                     borderRadius: 8,
@@ -274,7 +290,11 @@ const ColorChart = (function() {
                 },
                 label: {
                     show: true,
-                    formatter: '{b}: {d}%',
+                    formatter: function(params) {
+                        const item = data.find(item => item.label === params.name);
+                        const displayName = item && item.displayLabel ? item.displayLabel : params.name;
+                        return `${displayName}: ${params.percent}%`;
+                    },
                     fontSize: 11,
                     color: '#555'
                 },
@@ -334,18 +354,22 @@ const ColorChart = (function() {
             grid: {
                 left: '3%',
                 right: '4%',
-                bottom: '20%',
+                bottom: '24%',
                 top: '10%',
                 containLabel: true
             },
             xAxis: {
                 type: 'category',
-                data: data.map(item => item.label + '\n' + item.colorHex),
+                data: data.map(item => item.label),
                 axisLabel: {
                     color: '#666',
                     fontSize: 11,
                     align: 'center',
-                    verticalAlign: 'middle'
+                    verticalAlign: 'middle',
+                    formatter: function(value) {
+                        const item = data.find(item => item.label === value);
+                        return item && item.displayLabel ? `${item.displayLabel}\n${item.colorHex}` : value;
+                    }
                 },
                 axisLine: {
                     lineStyle: {
@@ -429,16 +453,20 @@ const ColorChart = (function() {
             },
             legend: {
                 orient: 'horizontal',
-                bottom: '5%',
+                bottom: '12%',
                 textStyle: {
                     color: '#666'
                 },
-                itemGap: 15
+                itemGap: 15,
+                formatter: function(name) {
+                    const seriesItem = data.find(item => item.name === name || item.displayLabel === name);
+                    return seriesItem && seriesItem.displayLabel ? seriesItem.displayLabel : name;
+                }
             },
             grid: {
                 left: '8%',
                 right: '8%',
-                bottom: '15%',
+                bottom: '20%',
                 top: '10%',
                 containLabel: true
             },
@@ -605,6 +633,12 @@ const ColorChart = (function() {
         hideChart(panelId);
     }
 
+    function getChartDataURL(panelId, options = { type: 'png' }) {
+        const chart = chartInstances[panelId];
+        if (!chart) return null;
+        return chart.getDataURL(options);
+    }
+
     /**
      * 获取当前图表类型
      * @param {string} panelId - 面板ID
@@ -634,6 +668,7 @@ const ColorChart = (function() {
         updateChart,
         switchChart,
         clearChart,
+        getChartDataURL,
         getCurrentChartType,
         destroyChart,
         setBackground

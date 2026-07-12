@@ -59,6 +59,15 @@ document.addEventListener('DOMContentLoaded', function() {
                 handleSubmenuAction(subaction);
             });
         });
+
+        document.querySelectorAll('.has-submenu').forEach(item => {
+            item.addEventListener('mouseenter', () => {
+                item.classList.add('submenu-open');
+            });
+            item.addEventListener('mouseleave', () => {
+                item.classList.remove('submenu-open');
+            });
+        });
     }
 
     function handleMenuAction(action) {
@@ -118,29 +127,63 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'save-image':
                 const canvas = document.getElementById(`preview-canvas-${pid}`);
                 if (canvas && canvas.width > 0) {
-                    const link = document.createElement('a');
-                    link.download = `color-kmeans-image-${Date.now()}.png`;
-                    link.href = canvas.toDataURL();
-                    link.click();
+                    downloadDataUrl(`color-kmeans-image-${Date.now()}.png`, canvas.toDataURL());
                 } else {
                     showToast('请先上传图片', 'warning');
                 }
                 break;
             case 'save-chart':
-                const chartInstance = window.ColorChart ? ColorChart.chartInstances[pid] : null;
-                if (chartInstance) {
-                    const link = document.createElement('a');
-                    link.download = `color-kmeans-chart-${Date.now()}.png`;
-                    link.href = chartInstance.getDataURL({ type: 'png' });
-                    link.click();
+                const chartDataUrl = window.ColorChart ? ColorChart.getChartDataURL(pid) : null;
+                if (chartDataUrl) {
+                    downloadDataUrl(`color-kmeans-chart-${Date.now()}.png`, chartDataUrl);
                 } else {
                     showToast('请先执行聚类分析', 'warning');
                 }
                 break;
             case 'save-panel':
-                showToast('保存面板功能开发中', 'info');
+                const panelElement = activePanel;
+                if (panelElement) {
+                    ensureHtml2Canvas(() => {
+                        html2canvas(panelElement, { backgroundColor: '#ffffff', logging: false })
+                            .then(canvas => {
+                                downloadDataUrl(`color-kmeans-panel-${Date.now()}.png`, canvas.toDataURL('image/png'));
+                            })
+                            .catch(() => {
+                                showToast('导出面板失败，请稍后重试', 'error');
+                            });
+                    });
+                }
                 break;
         }
+    }
+
+    function downloadDataUrl(filename, dataUrl) {
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = dataUrl;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+
+    function ensureHtml2Canvas(callback) {
+        if (window.html2canvas) {
+            callback();
+            return;
+        }
+
+        const scriptId = 'html2canvas-loader';
+        if (document.getElementById(scriptId)) {
+            document.getElementById(scriptId).addEventListener('load', callback);
+            return;
+        }
+
+        const script = document.createElement('script');
+        script.id = scriptId;
+        script.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+        script.onload = callback;
+        script.onerror = () => showToast('无法加载面板导出库，请检查网络', 'error');
+        document.head.appendChild(script);
     }
 
     const colorNames = {
@@ -410,6 +453,64 @@ document.addEventListener('DOMContentLoaded', function() {
         const canvasPlaceholder = document.getElementById(`canvas-placeholder-${panelId}`);
         const container = previewCanvas.parentElement;
 
+        const ctx = previewCanvas.getContext('2d');
+
+        // If this image has a modifiedDataUrl (canvas-modified), prefer that
+        if (imageData.modifiedDataUrl) {
+            const img = new Image();
+            img.onload = function() {
+                const maxWidth = container.clientWidth;
+                const maxHeight = 400;
+
+                let width = img.width;
+                let height = img.height;
+
+                if (width > maxWidth) {
+                    height = (maxWidth / width) * height;
+                    width = maxWidth;
+                }
+                if (height > maxHeight) {
+                    width = (maxHeight / height) * width;
+                    height = maxHeight;
+                }
+
+                previewCanvas.width = width;
+                previewCanvas.height = height;
+                previewCanvas.style.width = width + 'px';
+                previewCanvas.style.height = height + 'px';
+
+                container.style.minHeight = height + 'px';
+                container.style.height = height + 'px';
+
+                ctx.clearRect(0,0,previewCanvas.width, previewCanvas.height);
+                ctx.drawImage(img, 0, 0, width, height);
+
+                const savedImageData = ctx.getImageData(0, 0, width, height);
+                panel.originalImageData = savedImageData;
+
+                imageData.original = imageData.original || savedImageData;
+                imageData.width = width;
+                imageData.height = height;
+
+                previewCanvas.style.display = 'block';
+                canvasPlaceholder.style.display = 'none';
+
+                saveToHistory(panelId, savedImageData);
+
+                ColorChart.clearChart(panelId.toString());
+                ColorAI.clearResult(panelId.toString());
+                panel.clusterResult = null;
+                panel.clusterStats = [];
+                panel.scatterData = [];
+                hideColorEditor(panelId);
+                hideColorSchemePreview(panelId);
+                hideColorPresets(panelId);
+            };
+            img.src = imageData.modifiedDataUrl;
+            return;
+        }
+
+        // Fallback: draw original image URL
         const img = new Image();
         img.onload = function() {
             const maxWidth = container.clientWidth;
@@ -435,7 +536,7 @@ document.addEventListener('DOMContentLoaded', function() {
             container.style.minHeight = height + 'px';
             container.style.height = height + 'px';
 
-            const ctx = previewCanvas.getContext('2d');
+            ctx.clearRect(0,0,previewCanvas.width, previewCanvas.height);
             ctx.drawImage(img, 0, 0, width, height);
 
             const originalImageData = ctx.getImageData(0, 0, width, height);
@@ -445,7 +546,7 @@ document.addEventListener('DOMContentLoaded', function() {
             imageData.original = originalImageData;
             imageData.width = width;
             imageData.height = height;
-            imageData.modified = null;
+            imageData.modified = imageData.modified || null;
 
             previewCanvas.style.display = 'block';
             canvasPlaceholder.style.display = 'none';
@@ -557,14 +658,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 panel.currentKValue = k;
                 panel.currentColorSpace = colorSpace;
 
-                panel.clusterStats.forEach(stat => {
+                panel.clusterStats.forEach((stat) => {
                     stat.colorName = getColorName(stat.colorHex);
-                    stat.label = stat.colorName;
+                    stat.displayLabel = stat.colorName;
                 });
 
-                panel.scatterData.forEach((series, index) => {
-                    series.name = panel.clusterStats[index].colorName;
-                });
+                panel.scatterData = reorderScatterDataByClusterStats(panel);
 
                 panel.originalClusterResult = JSON.parse(JSON.stringify(panel.clusterResult));
 
@@ -589,6 +688,37 @@ document.addEventListener('DOMContentLoaded', function() {
                 clusterBtn.innerHTML = ' 聚类';
             }
         }, 100);
+    }
+
+    function reorderScatterDataByClusterStats(panel) {
+        if (!panel || !Array.isArray(panel.clusterStats) || !Array.isArray(panel.scatterData)) {
+            return panel.scatterData || [];
+        }
+
+        const statsByIndex = panel.clusterStats.reduce((map, stat) => {
+            if (typeof stat.originalIndex === 'number') {
+                map[stat.originalIndex] = stat;
+            }
+            return map;
+        }, {});
+
+        const reordered = panel.scatterData
+            .map(series => {
+                const index = typeof series.originalIndex === 'number' ? series.originalIndex : null;
+                const stat = index !== null ? statsByIndex[index] : null;
+                return {
+                    ...series,
+                    displayLabel: stat ? stat.colorName : series.displayLabel,
+                    name: series.name || (stat ? stat.label : series.name)
+                };
+            })
+            .sort((a, b) => {
+                const aIndex = typeof a.originalIndex === 'number' ? a.originalIndex : -1;
+                const bIndex = typeof b.originalIndex === 'number' ? b.originalIndex : -1;
+                return aIndex - bIndex;
+            });
+
+        return reordered;
     }
 
     async function performAIAnalysis(panelId) {
@@ -807,12 +937,20 @@ document.addEventListener('DOMContentLoaded', function() {
                     stat.color = newColor;
                     stat.colorHex = presetColors[index];
                     stat.colorName = getColorName(presetColors[index]);
-                    stat.label = stat.colorName;
+                    stat.displayLabel = stat.colorName;
                 }
             }
         });
 
         saveToHistory(panelId, ctx.getImageData(0, 0, previewCanvas.width, previewCanvas.height));
+
+        // store modified image data URL for this image
+        if (panel.currentImageIndex >= 0 && panel.images[panel.currentImageIndex]) {
+            const imgObj = panel.images[panel.currentImageIndex];
+            const imgData = ctx.getImageData(0, 0, previewCanvas.width, previewCanvas.height);
+            imgObj.modified = imgData;
+            imgObj.modifiedDataUrl = previewCanvas.toDataURL();
+        }
 
         ColorChart.updateChart(panelId.toString(), panel.clusterStats, panel.scatterData);
         showColorEditor(panelId);
@@ -836,19 +974,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
         saveToHistory(panelId, panel.originalImageData);
 
+        // clear any modified data for current image so UI shows original
+        if (panel.currentImageIndex >= 0 && panel.images[panel.currentImageIndex]) {
+            panel.images[panel.currentImageIndex].modified = null;
+            panel.images[panel.currentImageIndex].modifiedDataUrl = null;
+        }
+
         if (panel.originalClusterResult) {
             panel.clusterResult = JSON.parse(JSON.stringify(panel.originalClusterResult));
             panel.clusterStats = ColorKMeans.getClusterStats(panel.clusterResult);
             panel.scatterData = ColorKMeans.getLabScatterData(panel.clusterResult.clusters, panel.clusterResult.centroids);
             
-            panel.clusterStats.forEach(stat => {
+            panel.clusterStats.forEach((stat) => {
                 stat.colorName = getColorName(stat.colorHex);
-                stat.label = stat.colorName;
+                stat.displayLabel = stat.colorName;
             });
 
-            panel.scatterData.forEach((series, index) => {
-                series.name = panel.clusterStats[index].colorName;
-            });
+            panel.scatterData = reorderScatterDataByClusterStats(panel);
 
             document.getElementById(`total-pixels-${panelId}`).textContent = panel.clusterResult.totalPixels.toLocaleString();
             document.getElementById(`cluster-count-${panelId}`).textContent = panel.clusterStats.length;
@@ -889,8 +1031,27 @@ document.addEventListener('DOMContentLoaded', function() {
             updateUndoButton(panelId);
         };
         img.src = prevDataUrl;
+        // set the current image's modifiedDataUrl to the restored data
+        if (panel.currentImageIndex >= 0 && panel.images[panel.currentImageIndex]) {
+            panel.images[panel.currentImageIndex].modifiedDataUrl = prevDataUrl;
+        }
         
-        showToast('已撤销上一步操作', 'success');
+        // After restoring the previous canvas image, clear clustering and AI state
+        panel.clusterResult = null;
+        panel.clusterStats = [];
+        panel.scatterData = [];
+        panel.currentKValue = null;
+
+        ColorChart.clearChart(panelId.toString());
+        ColorAI.clearResult(panelId.toString());
+        hideColorEditor(panelId);
+        hideColorSchemePreview(panelId);
+        hideColorPresets(panelId);
+
+        document.getElementById(`total-pixels-${panelId}`).textContent = '0';
+        document.getElementById(`cluster-count-${panelId}`).textContent = '0';
+
+        showToast('已撤销上一步操作，聚类和AI结果已清除', 'success');
     }
 
     function updateClusterColor(panelId, clusterIndex, newColor) {
@@ -905,11 +1066,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
         saveToHistory(panelId, imageData);
 
+        // store modified image and data url
+        if (panel.currentImageIndex >= 0 && panel.images[panel.currentImageIndex]) {
+            const imgObj = panel.images[panel.currentImageIndex];
+            imgObj.modified = imageData;
+            imgObj.modifiedDataUrl = previewCanvas.toDataURL();
+        }
+
         panel.clusterResult.centroids[clusterIndex] = newColor;
         panel.clusterStats[clusterIndex].color = newColor;
         panel.clusterStats[clusterIndex].colorHex = ColorKMeans.rgbToHex(newColor.r, newColor.g, newColor.b);
         panel.clusterStats[clusterIndex].colorName = getColorName(panel.clusterStats[clusterIndex].colorHex);
-        panel.clusterStats[clusterIndex].label = panel.clusterStats[clusterIndex].colorName;
+        panel.clusterStats[clusterIndex].displayLabel = panel.clusterStats[clusterIndex].colorName;
+        panel.scatterData = reorderScatterDataByClusterStats(panel);
 
         ColorChart.updateChart(panelId.toString(), panel.clusterStats, panel.scatterData);
         showColorSchemePreview(panelId);
@@ -1265,6 +1434,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
         saveToHistory(targetPanelId, imageData);
 
+        // store modified image data url for this image
+        if (targetPanel.currentImageIndex >= 0 && targetPanel.images[targetPanel.currentImageIndex]) {
+            const imgObj = targetPanel.images[targetPanel.currentImageIndex];
+            imgObj.modified = imageData;
+            imgObj.modifiedDataUrl = previewCanvas.toDataURL();
+        }
+
         targetPanel.clusterResult.centroids = [...sourceCentroids];
         targetPanel.clusterStats = targetPanel.clusterStats.map((stat, i) => {
             const centroid = sourceCentroids[i];
@@ -1416,11 +1592,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
             const originalImageData = ctx.getImageData(0, 0, width, height);
             panel.images.push({
+                file: null,
+                url: src,
+                name: src.split('/').pop(),
                 original: originalImageData,
                 modified: null,
                 width: width,
-                height: height,
-                fileName: src.split('/').pop()
+                height: height
             });
             panel.currentImageIndex = panel.images.length - 1;
             panel.history = [];
@@ -1428,7 +1606,7 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById(`canvas-placeholder-${panelId}`).style.display = 'none';
             updateImageSwitcher(panelId);
 
-            cacheImage(src.split('/').pop(), previewCanvas.toDataURL());
+            cacheImage({ name: src.split('/').pop(), url: previewCanvas.toDataURL() });
 
             closeUploadModal();
             showToast('图片加载成功', 'success');
@@ -1553,6 +1731,7 @@ document.addEventListener('DOMContentLoaded', function() {
         ctx.putImageData(newImageData, 0, 0);
 
         targetPanel.images[targetPanel.currentImageIndex].modified = newImageData;
+        targetPanel.images[targetPanel.currentImageIndex].modifiedDataUrl = ctx.canvas.toDataURL();
 
         if (!targetPanel.history) targetPanel.history = [];
         targetPanel.history.push({
